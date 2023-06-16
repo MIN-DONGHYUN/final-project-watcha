@@ -1,0 +1,636 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="watchamin">
+
+	<!-- header 검색어 자동완성-->
+	<select id="searchword" parameterType="HashMap" resultType="String">
+	
+		SELECT movie_title
+		FROM movie
+		WHERE movie_title LIKE CONCAT(LOWER(#{searchWord}), '%')	
+		ORDER BY CASE WHEN movie_title LIKE CONCAT(LOWER(#{searchWord}), '%') THEN 0 ELSE 1 END, movie_title
+
+	</select>
+
+
+
+	<select id="showEvaluationNum" resultType="int">
+		SELECT sum(rating_count) AS sum_rating_count
+		FROM Movie
+	</select>
+
+
+
+	<!-- 평점 순위  -->
+	<select id="starRank" resultType="com.spring.watcha.model.MovieVO">
+		 <![CDATA[
+		    SELECT  movie_id, movie_title, original_language, release_date, poster_path, rating_count, rating_avg
+			FROM (
+			  SELECT ROWNUM, movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_count, rating_avg
+			  FROM Movie
+			  
+			) 
+			WHERE ROWNUM <= 30
+			ORDER BY rating_avg desc, movie_title asc
+		  ]]>
+	</select>
+	
+	<!-- FROM Movie 뒤에 where rating_count > 9  사용하면 됨 -->
+	
+	<!-- 보고싶어요 순위  -->
+	<select id="seeRank" resultType="com.spring.watcha.model.MovieVO">
+		 <![CDATA[
+		 SELECT m.movie_id, m.movie_title, m.original_language, m.release_date, m.poster_path, m.rating_avg, w.movie_count
+		 FROM (
+		   SELECT movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		   FROM Movie
+		 ) m
+		 JOIN (
+		   SELECT movie_id, COUNT(*) AS movie_count
+		   FROM watch_list
+		   GROUP BY movie_id
+		 ) w
+		 ON m.movie_id = w.movie_id
+		 where ROWNUM <= 30
+		 ORDER BY w.movie_count DESC
+		 ]]>
+	</select>
+	
+	
+	<!-- 한줄평 많은 순위 20개  -->
+	<select id="commentRank" resultType="com.spring.watcha.model.MovieVO">
+		<![CDATA[
+		SELECT m.movie_id, m.movie_title, m.original_language, m.release_date, m.poster_path, m.rating_avg, w.movie_count
+		FROM (
+		  SELECT movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		  FROM Movie
+		) m
+		JOIN (
+		  SELECT movie_id, COUNT(*) AS movie_count
+		  FROM movie_review
+		  GROUP BY movie_id
+		) w
+		ON m.movie_id = w.movie_id
+		where ROWNUM <= 20
+		ORDER BY w.movie_count DESC
+		]]>
+	</select>
+	
+	
+	
+
+   <resultMap id="movieMainMap" type="com.spring.watcha.model.MovieVO">
+       <id property="actorRank" column="actorRank" />
+       <result property="movie_id" column="movie_id"/>
+       <result property="movie_title" column="movie_title"/>
+       <result property="overview" column="overview"/>
+       <result property="original_language" column="original_language"/>
+       <result property="original_title" column="original_title"/>
+       <result property="release_date" column="release_date"/>
+       <result property="tagline" column="tagline"/>
+       <result property="runtime" column="runtime"/>
+       <result property="poster_path" column="poster_path"/>
+       <result property="backdrop_path" column="backdrop_path"/>
+       <result property="rating_count" column="rating_count"/>
+       <result property="rating_avg" column="rating_avg"/>
+       <collection property="starRating" javaType="java.util.List" column="actor_id" ofType="com.spring.watcha.model.Star_ratingVO" select="selectMainActor" />
+ 	   <collection property="actor" javaType="java.util.List" ofType="com.spring.watcha.model.ActorVO" resultMap="actorResultMap"/>
+  </resultMap>
+  
+  <resultMap type="com.spring.watcha.model.ActorVO" id="actorResultMap">
+  	   <result property="actor_name" column="actor_name"/>
+  </resultMap>
+   
+	
+	<!-- 많이 평가한  배우 영화  -->
+	<select id="actorRank" resultMap="movieMainMap" parameterType="HashMap"> 
+		SELECT m.movie_id, a.actor_id, COUNT(*) OVER (PARTITION BY a.actor_id) AS identical_actor_count, a.casting_order, b.actor_name
+	    FROM (
+	        SELECT movie_id, user_id, rating, rating_date
+	        FROM star_rating
+	        <if test="login_userid != null">
+	       	    WHERE user_id = #{login_userid}     <!-- 로그인 한 사람으로 변경해야 함  -->
+	       	</if>    
+	    ) w
+	    JOIN (
+	        SELECT movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+	        FROM Movie
+	    ) m ON w.movie_id = m.movie_id
+	    JOIN (
+	        SELECT actor_id, movie_id, casting_order
+	        FROM movie_role
+	    ) a ON a.movie_id = m.movie_id
+	    JOIN (
+	        SELECT actor_id, actor_name
+	        FROM actor
+	    ) b ON b.actor_id = a.actor_id
+	    ORDER BY identical_actor_count DESC, a.casting_order ASC
+	    FETCH FIRST ROW ONLY
+	</select>
+	
+	
+	<select id="selectMainActor" resultMap="movieMainMap" >
+		select a.movie_id, a.movie_title, a.original_language, release_date, a.poster_path, a.rating_avg, c.actor_name
+		from (
+		    SELECT movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		    FROM Movie
+		)a
+		JOIN (
+		    SELECT actor_id, movie_id, casting_order
+		    FROM movie_role
+		    where actor_id = #{actor_id}
+		)b
+		ON a.movie_id = b.movie_id
+		JOIN (
+		    SELECT actor_id, actor_name
+		    FROM actor
+		)c 
+		ON b.actor_id = c.actor_id
+		Order by rating_avg desc
+	</select>  
+	
+	
+	
+	<!-- 많이 평가한 영화 장르  -->
+	
+	<resultMap id="movieMaingenreMap" type="com.spring.watcha.model.MovieVO">
+       <id property="actorRank" column="actorRank" />
+       <result property="movie_id" column="movie_id"/>
+       <result property="movie_title" column="movie_title"/>
+       <result property="overview" column="overview"/>
+       <result property="original_language" column="original_language"/>
+       <result property="original_title" column="original_title"/>
+       <result property="release_date" column="release_date"/>
+       <result property="tagline" column="tagline"/>
+       <result property="runtime" column="runtime"/>
+       <result property="poster_path" column="poster_path"/>
+       <result property="backdrop_path" column="backdrop_path"/>
+       <result property="rating_count" column="rating_count"/>
+       <result property="rating_avg" column="rating_avg"/>
+       <collection property="starRating" javaType="java.util.List" column="genre_id" ofType="com.spring.watcha.model.Star_ratingVO" select="selectMainGenre" />
+ 	   <collection property="genres" javaType="java.util.List" ofType="com.spring.watcha.model.GenreVO" resultMap="genreResultMap"/>
+    </resultMap>
+    
+    <resultMap type="com.spring.watcha.model.GenreVO" id="genreResultMap">
+  	   <result property="genre_name" column="genre_name"/>
+    </resultMap>
+	
+	<select id="genreRank" resultMap="movieMaingenreMap" parameterType="HashMap">
+		select a.movie_id, a.movie_title, a.original_language, release_date, a.poster_path, a.rating_avg,
+		       COUNT(*) OVER (PARTITION BY b.Genre_id) AS count_Genre_id, c.Genre_id, c.Genre_name 
+		from (
+		    SELECT movie_id, user_id, rating, rating_date
+		    FROM star_rating
+		    <if test="login_userid != null and actorCheck != null">
+	       	    WHERE user_id = #{login_userid}     <!-- 로그인 한 사람 그리고 actorCheck 가 null로 넘어오지 않으면  -->
+	       	</if> 
+		) w
+		JOIN(
+		    select movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg  
+		    from movie
+		) a
+		ON w.movie_id = a.movie_id
+		JOIN(
+		    select movie_id, Genre_id
+		    from movie_genre
+		) b
+		ON a.movie_id = b.movie_id
+		JOIN (
+		    select Genre_id, Genre_name
+		    from genre
+		) c
+		ON b.Genre_id = c.Genre_id
+		ORDER BY count_Genre_id desc
+		FETCH FIRST ROW ONLY
+
+	</select>
+	
+	<select id="selectMainGenre" resultMap="movieMaingenreMap">
+		<![CDATA[
+		select  movie_id, movie_title, original_language, release_date, poster_path, rating_avg
+		from (
+		    select a.movie_id, a.movie_title, a.original_language, release_date, a.poster_path, a.rating_avg
+		    from (
+		        
+		        SELECT movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		        FROM Movie
+		    )a
+		    JOIN (
+		        SELECT movie_id, genre_id
+		        FROM movie_genre
+		        where genre_id = #{genre_id}
+		    )b
+		    ON a.movie_id = b.movie_id
+		    JOIN (
+		        SELECT genre_id, genre_name
+		        FROM genre
+		    ) c ON b.genre_id = c.genre_id
+		)
+		where ROWNUM <= 10
+		ORDER BY rating_avg desc
+		]]>
+	</select>
+	
+	
+	<!-- 회원의 컬렉션을 나타내는 곳이다.  -->
+	<select id="usercol"  resultType="com.spring.watcha.model.MovieVO" parameterType="HashMap">
+		
+		select a.movie_id, a.movie_title, a.original_language, a.release_date, a.poster_path, a.rating_avg
+		from (
+		    select movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		    from movie
+		) a
+		JOIN (
+		    select user_id, movie_id
+		    from collection_movie
+		    <if test="login_userid != null"> 
+	       		WHERE user_id = #{login_userid}   
+			</if>
+		) b
+		ON a.movie_id = b.movie_id
+
+	</select>
+	
+	<!-- 검색했을때 처음 콘텐츠 내보내기 -->
+	<select id="showMovie1" resultType="com.spring.watcha.model.MovieVO" parameterType="HashMap">
+		
+		<![CDATA[
+			SELECT movie_id, movie_title, original_language, '20' || release_date AS release_date, poster_path, rating_avg
+			FROM (
+			  SELECT movie_id, movie_title, original_language, release_date, poster_path, rating_avg
+			  FROM movie
+			  WHERE LOWER(movie_title) LIKE '%' || LOWER(#{searchWord}) || '%'
+			)
+			WHERE ROWNUM <= 30
+			
+		]]>
+	</select>
+	
+	
+	<!-- 로그인 안했을때 또는 로그인 했지만 평가하지 않은 경우 나오는 Tom Holland 의 최신 순의 영화 작품 (체크하기) -->
+	<select id="actorCheck" resultType="com.spring.watcha.model.MovieVO" parameterType="HashMap">
+		
+		<if test="login_userid != null">   <!-- 로그인 안했으면 결과 반환 x 했으면 결과 반환 -->
+        SELECT movie_id, user_id, rating, rating_date
+        FROM star_rating
+        WHERE user_id = #{login_userid}     
+       	</if> 
+       	
+       	<if test="login_userid == null">   <!-- 로그인 안했으면 결과 반환 x 했으면 결과 반환 -->
+        SELECT movie_id, user_id, rating, rating_date
+        FROM star_rating
+        WHERE user_id = ''  <!-- 아무것도 없게 하기 위해서  -->     
+       	</if> 
+	    
+	</select>
+	
+	<!-- 바로 위의 메소드가 결과가 공백이라면 두번째 쿼리문 실행  -->
+	
+	<resultMap id="MovieVOActorName" type="com.spring.watcha.model.MovieVO">
+	    <id property="movie_id" column="movie_id"/>
+	    <result property="movie_title" column="movie_title"/>
+	    <result property="original_language" column="original_language"/>
+	    <result property="release_date" column="release_date"/>
+	    <result property="poster_path" column="poster_path"/>
+	    <result property="rating_avg" column="rating_avg"/>
+	    <collection property="actor" ofType="java.lang.String">
+	        <result column="actor_name"/>
+	    </collection>
+	</resultMap>
+	
+	<select id="actorCheckFinal" resultMap="MovieVOActorName">
+		SELECT m.movie_id, m.movie_title, m.original_language, m.release_date, m.poster_path, m.rating_avg, c.actor_name
+		FROM (
+		  SELECT movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		  FROM Movie
+		) m
+		JOIN (
+		  SELECT movie_id, actor_id
+		  FROM movie_role
+		  where actor_id = '1136406'
+		) w
+		ON m.movie_id = w.movie_id
+		JOIN (
+		  select actor_id, actor_name
+		  from actor
+		) c
+		ON w.actor_id = c.actor_id
+		ORDER BY release_date desc
+		
+	</select>
+	
+	<!-- 유저의 컬렉션이 있는지 확인하기  -->
+	<select id="celCheck" resultType="com.spring.watcha.model.collection_movieVO" parameterType="HashMap">
+		<if test="login_userid != null"> 
+			select *
+			from collection_movie
+			where user_id = #{login_userid} 
+		</if>
+		<if test="login_userid == null"> 
+			select *
+			from collection_movie
+			where user_id = ''
+		</if>
+	
+	</select>
+	
+	
+	
+	<!-- 가장 많은 컬렉션(영화수)을 가지고 있는 다른 유저의 컬렉션 가져오기 -->
+	
+	<resultMap id="colMovie" type="com.spring.watcha.model.MovieVO">
+	    <id property="movie_id" column="movie_id"/>
+	    <result property="movie_title" column="movie_title"/>
+	    <result property="original_language" column="original_language"/>
+	    <result property="release_date" column="release_date"/>
+	    <result property="poster_path" column="poster_path"/>
+	    <result property="rating_avg" column="rating_avg"/>
+	    <collection property="collection" javaType="java.util.List" column="user_id" ofType="com.spring.watcha.model.collection_movieVO" select="colMovieFinal" />
+	</resultMap>
+	
+	
+	<select id="celCheckFinal" resultMap="colMovie">
+		
+		select COUNT(*) OVER (PARTITION BY user_id) AS count_user_id, user_id
+		from ( 
+		    select user_id, movie_id
+		    from collection_movie
+		)
+		order by count_user_id desc, user_id asc
+		FETCH FIRST ROW ONLY
+	</select>
+	
+	<select id="colMovieFinal" resultMap="colMovie">
+
+		select a.movie_id, a.movie_title, a.original_language, a.release_date, a.poster_path, a.rating_avg
+		from (
+		    select movie_id, movie_title, original_language, CONCAT('20', release_date) AS release_date, poster_path, rating_avg
+		    from movie
+		) a
+		JOIN (
+		    select user_id, movie_id
+		    from collection_movie
+		    where user_id = #{user_id}
+		) b
+		ON a.movie_id = b.movie_id
+		order by rating_avg desc
+	
+	</select>
+	
+	
+	<!-- 컬렉션 있는 유저 가져오기  -->
+	
+	<!-- 유저의 컬렉션을 가져오기 각자마다 -->
+	<resultMap id="find_Userid_Name" type="com.spring.watcha.model.collection_movieVO">	
+	    <result property="user_id" column="user_id"/>
+	    <collection property="member" javaType="java.util.List" ofType="com.spring.watcha.model.MemberVO" resultMap="memberResultMap"/>
+	</resultMap>
+	
+	<resultMap id="memberResultMap" type="com.spring.watcha.model.MemberVO">
+	    <result property="name" column="name"/>
+	    <result property="user_id" column="user_id"/>
+	</resultMap>
+	
+	<select id="finduser" resultMap="find_Userid_Name">		
+		select a.user_id , MAX(b.name) AS name, COUNT(*) AS user_id2
+		from (
+		    SELECT user_id , COUNT(*) OVER (PARTITION BY user_id) AS user_id2
+		    FROM collection_movie  
+		    order by user_id2 desc
+		    
+		) a
+		join (
+		    select user_id, name 
+		    from member
+		) b
+		ON a.user_id = b.user_id
+		group by a.user_id
+		order by user_id2 desc, user_id asc
+	</select>
+	
+	
+	
+	
+	<!-- 유저의 컬렉션을 가져오기 각자마다 -->
+	<resultMap id="colMovie22" type="com.spring.watcha.model.MovieVO">	
+	    <result property="poster_path" column="poster_path"/>
+	    <collection property="collection" javaType="java.util.List" column="user_id" ofType="com.spring.watcha.model.collection_movieVO" />
+	</resultMap>
+
+	<select id="findCollectionFinal" resultMap="colMovie22" parameterType="String">
+		
+		select a.movie_id, a.movie_title, a.original_language, a.release_date, a.poster_path, a.rating_avg, b.user_id
+		from (
+		    select movie_id, movie_title, original_language, release_date, poster_path, rating_avg
+		    from movie
+		) a
+		JOIN (
+		    SELECT user_id, movie_id 
+		    FROM collection_movie   
+		    where user_id = #{user_id}
+		) b
+		ON a.movie_id = b.movie_id
+		order by rating_avg desc
+		
+	</select>
+	
+	
+	<!-- 검색한 영화 정보 모두 가져오기  -->
+	<select id="showMovieAll" resultType="com.spring.watcha.model.MovieVO" parameterType="HashMap">			
+			SELECT movie_id, movie_title, EXTRACT(YEAR FROM release_date) AS release_date, poster_path, rating_avg
+			FROM (
+			  SELECT rownum AS rn, movie_id, movie_title, release_date, poster_path, rating_avg
+			  FROM (
+			    SELECT rownum, movie_id, movie_title, release_date, poster_path, rating_avg
+			    FROM movie
+			    WHERE LOWER(movie_title) LIKE '%' || LOWER(#{lastSearchWord}) || '%' 
+			    ORDER BY CASE WHEN LOWER(movie_title) LIKE LOWER(#{lastSearchWord}) || '%' THEN 0 ELSE 1 END, movie_title ASC
+			  )
+			)
+			WHERE rn BETWEEN #{start} AND #{end}			
+	</select>
+	
+	<!-- 영화 총 숫자 (검색기준) -->
+	<select id="total_count" resultType="int" parameterType="HashMap">
+	    SELECT COUNT(*) 
+	    FROM movie 
+	    WHERE LOWER(movie_title) LIKE '%' || LOWER(#{lastSearchWord}) || '%'
+	</select>
+	
+	
+	<!-- 인물 총 숫자 (검색기준) -->
+	<select id="total_count_people" resultType="int" parameterType="HashMap">
+	    SELECT COUNT(*) 
+	    FROM actor 
+	    WHERE LOWER(actor_name) LIKE '%' || LOWER(#{lastSearchWord}) || '%'
+	</select>
+	
+	
+	<!-- 검색한 인물 정보 모두 가져오기  -->
+	<select id="showPeopleAll" resultType="com.spring.watcha.model.ActorVO" parameterType="HashMap">			
+		SELECT actor_id, actor_name, case when gender = 1 then '여성' 
+		                                  when gender = 2 then '남성' 
+		                                  else '업데이트 중' end as gender,
+		       nvl(date_of_birth, '업데이트중') as date_of_birth, profile_image_path
+		FROM (
+		  SELECT rownum AS rn,  actor_id, actor_name, gender, date_of_birth, profile_image_path
+		  FROM (
+		    SELECT rownum, actor_id, actor_name, gender, date_of_birth, profile_image_path
+		    FROM actor
+		    WHERE LOWER(actor_name) LIKE '%' || LOWER(#{lastSearchWord}) || '%' 
+		    ORDER BY CASE WHEN LOWER(actor_name) LIKE LOWER(#{lastSearchWord}) || '%' THEN 0 ELSE 1 END, actor_name ASC
+		  )
+		)
+		where rn between #{start} AND #{end}			
+	</select>
+	
+	
+	
+	<!-- 유저 총 숫자 (검색기준) -->
+	<select id="total_count_User" resultType="int" parameterType="HashMap">
+	    SELECT COUNT(*) 
+	    FROM Member
+	    WHERE LOWER(name) LIKE '%' || LOWER(#{lastSearchWord}) || '%'
+	</select>
+	
+	
+	<!-- 검색한 유저 정보 모두 가져오기  -->
+	<select id="showUserAll" resultType="com.spring.watcha.model.MemberVO" parameterType="HashMap">				
+		select name, profile_image, total_count
+		from (
+		  select rownum as rn, name, profile_image, (
+		    select count(*) 
+		    from Movie_Review 
+		    where movie_review.user_id = member.User_Id
+		  ) as total_count
+		  from member
+		  where lower(name) like '%' || lower(#{lastSearchWord}) || '%'
+		  order by case when lower(name) like lower(#{lastSearchWord}) || '%' then 0 else 1 end, total_count desc,  name asc
+		)
+		where rn between #{start} AND #{end}	
+	</select>
+	
+	<!-- 컬렉션 총 숫자 (검색기준) -->
+	<select id="total_count_Collection" resultType="int" parameterType="HashMap">
+	    select count(user_id) as count
+		from(
+		    select a.user_id
+		    from (
+		        select user_id
+		        from COLLECTION_MOVIE
+		    ) a
+		    JOIN 
+		    (
+		        select user_id, name
+		        from member
+		    ) b
+		    ON a.user_id = b.user_id    
+		    WHERE LOWER(name) LIKE '%' || LOWER(#{lastSearchWord}) || '%'
+		    group by a.user_id
+		)
+	</select>
+	
+	
+	<!-- 검색한 컬렉션 정보 모두 가져오기 -->
+	<resultMap id="searchCollection_Movie" type="com.spring.watcha.model.MemberVO">
+	    <id property="user_id" column="user_id"/>
+	    <result property="name" column="name"/>
+	    <result property="profile_image" column="profile_image"/>	   
+	   <collection property="poster" column="user_id" ofType="java.lang.String" select="collectionMovie_go" />
+	</resultMap>
+	
+
+	<select id="showCollectionAll" resultMap="searchCollection_Movie" parameterType="HashMap">
+	   select DISTINCT b.user_id, b.name, b.profile_image
+		from (
+		    select user_id, movie_id
+		    from collection_movie
+		) a
+		JOIN (
+		    select user_id, name, profile_image
+		    from member
+		) b
+		ON a.user_id = b.user_id
+		WHERE LOWER(b.name) LIKE '%' || LOWER(#{lastSearchWord}) || '%'
+		order by name asc
+	</select>
+	
+	
+	<select id="collectionMovie_go" resultType="java.lang.String">
+		select a.poster_path
+		from (
+		    select *
+		    from movie
+		) a
+		JOIN (
+		    select *
+		    from collection_movie
+		) b 
+		ON a.movie_id = b.movie_id
+		where b.user_id =  #{user_id}
+	</select>
+	
+	
+	
+	
+	
+	
+	<!-- 검색한 영화 결과 excel 에 저장하기 위해  -->
+	
+	<resultMap type="HashMap" id="excel">
+		<result property="movie_id"              column="movie_id" javaType="String"/>   <!-- property가 HashMap Key이다. -->
+		<result property="movie_title"           column="movie_title" javaType="String"/>
+		<result property="original_language"     column="original_language" javaType="String"/>
+		<result property="release_date"          column="release_date" javaType="String"/>
+		<result property="tagline"               column="tagline" javaType="String"/>
+		<result property="runtime"               column="runtime" javaType="String"/>
+		<result property="poster_path"           column="poster_path" javaType="String"/>
+		<result property="original_title"        column="original_title" javaType="String"/>
+	</resultMap>
+	
+
+	<select id="movieexcel" resultMap="excel" parameterType="HashMap">
+		SELECT movie_id, movie_title, original_language, original_title,  
+		      CONCAT('20', release_date) AS release_date, nvl(tagline, '업데이트 중') AS tagline , runtime, 
+		      CONCAT('https://image.tmdb.org/t/p/w500/',  poster_path) AS poster_path
+		FROM movie
+		WHERE LOWER(movie_title) LIKE '%' || LOWER(#{searchWord}) || '%' 
+		ORDER BY CASE WHEN LOWER(movie_title) LIKE LOWER(#{searchWord}) || '%' THEN 0 ELSE 1 END, movie_title ASC
+
+	</select>
+	
+	
+	
+	
+	<!-- 검색한 인물 결과 excel 에 저장하기 위해  -->
+	
+	<resultMap type="HashMap" id="excel2">
+		<result property="actor_id"             column="actor_id" javaType="String"/>   <!-- property가 HashMap Key이다. -->
+		<result property="actor_name"           column="actor_name" javaType="String"/>
+		<result property="gender"     			column="gender" javaType="String"/>
+		<result property="date_of_birth"        column="date_of_birth" javaType="String"/>
+		<result property="place_of_birth"       column="place_of_birth" javaType="String"/>
+		<result property="profile_image_path"   column="profile_image_path" javaType="String"/>
+	</resultMap>
+	
+
+	<select id="actorExcel" resultMap="excel2" parameterType="HashMap">
+		SELECT actor_id, actor_name, 
+                case when gender = 1 then '여성' 
+	              when gender = 2 then '남성' 
+	              else '업데이트 중' end as gender, 
+                nvl(date_of_birth, '업데이트중') as date_of_birth, 
+                nvl(place_of_birth, '업데이트중') as place_of_birth, 
+                nvl(profile_image_path, '업데이트중') as profile_image_path
+	    FROM actor
+	    WHERE LOWER(actor_name) LIKE '%' || LOWER(#{lastSearchWord}) || '%' 
+	    ORDER BY CASE WHEN LOWER(actor_name) LIKE LOWER(#{lastSearchWord}) || '%' THEN 0 ELSE 1 END, actor_name ASC
+
+	</select>
+	
+	
+	
+	
+</mapper>

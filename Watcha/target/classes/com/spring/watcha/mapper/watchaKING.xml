@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="watcha">
+
+   <!-- 영화 및 드라마 등 정보 가져오기  시작 -->
+   <resultMap id="movieResultMap" type="com.spring.watcha.model.MovieVO">
+       <id     		property="movie_id"          column="movie_id"/>
+       <result 		property="movie_title" 		column="movie_title"/>
+       <result 		property="overview" 		column="overview"/>
+       <result 		property="original_language" column="original_language"/>
+       <result 		property="original_title" 	column="original_title"/>
+       <result 		property="release_date" 		column="release_date"/>
+       <result 		property="tagline" 			column="tagline"/>
+       <result 		property="runtime" 			column="runtime"/>
+       <result 		property="poster_path" 		column="poster_path"/>
+       <result 		property="backdrop_path" 	column="backdrop_path"/>
+       <result 		property="rating_count" 		column="rating_count"/>
+       <result 		property="rating_avg" 		column="rating_avg"/>
+       <collection  property="genres"	  javaType="java.util.List" column="movie_id" ofType="com.spring.watcha.model.Movie_genreVO" select="selectGenresByMovieId" />
+       <collection  property="movieRoles" javaType="java.util.List" column="movie_id" ofType="com.spring.watcha.model.Movie_roleVO" select="selectMovieRolesByMovieId"/>
+   </resultMap>
+   
+   <resultMap id="genreResultMap" type="com.spring.watcha.model.GenreVO">
+       <id property="genre_id" column="genre_id" />
+       <result property="genre_name" column="genre_name" />
+   </resultMap>
+   
+   <resultMap id="movieRoleResultMap" type="com.spring.watcha.model.Movie_roleVO">
+       <result property="role" column="role"/>
+       <result property="casting_order" column="casting_order"/>
+       <association property="actor" javaType="com.spring.watcha.model.ActorVO" resultMap="actorResultMap" />
+   </resultMap>
+   
+   <resultMap id="actorResultMap" type="com.spring.watcha.model.ActorVO">
+       <id property="actor_id" column="actor_id" />
+       <result property="actor_name" column="actor_name"/>
+       <result property="gender" column="gender"/>
+       <result property="date_of_birth" column="date_of_birth"/>
+       <result property="place_of_birth" column="place_of_birth"/>
+       <result property="profile_image_path" column="profile_image_path"/>
+   </resultMap>
+   
+   <select id="getMovieDetails" resultMap="movieResultMap" parameterType="HashMap">
+       SELECT movie_id, movie_title, overview, original_language, original_title, to_char(release_date, 'yyyy-mm-dd') as release_date, tagline, to_number(runtime) as runtime, poster_path, backdrop_path, to_number(rating_count) as rating_count
+       , to_number(rating_avg) as rating_avg
+       FROM movie
+       WHERE movie_id = #{movie_id}
+   </select>
+   
+   <select id="selectGenresByMovieId" resultMap="genreResultMap">
+       SELECT MG.movie_id, G.genre_id, G.genre_name
+       FROM genre G JOIN movie_genre MG 
+       ON G.genre_id = MG.genre_id
+       WHERE MG.movie_id = #{movie_id}
+   </select>
+   
+   <select id="selectMovieRolesByMovieId" resultMap="movieRoleResultMap">
+       SELECT MR.movie_id, MR.actor_id, MR.role, MR.casting_order, A.actor_name, A.gender, A.date_of_birth, A.place_of_birth, A.profile_image_path
+       FROM movie_role MR JOIN actor A 
+       ON MR.actor_id = A.actor_id
+       WHERE MR.movie_id = #{movie_id}
+   </select>
+   <!-- 영화 및 드라마 등 정보 가져오기  끝 -->
+
+   <!-- 유저의 컬랙션  시작 -->
+   <resultMap type="HashMap" id="collectionViewMap">
+       <result property="movie_id"      column="movie_id"    	javaType="String" />
+       <result property="movie_title"   column="movie_title"    javaType="String" />
+       <result property="poster_path"   column="poster_path"    javaType="String" />
+       <result property="backdrop_path" column="backdrop_path"  javaType="String" />
+       <result property="user_id"       column="user_id"        javaType="String" />
+       <result property="nickname"      column="nickname"       javaType="String" />
+       <result property="profile_image" column="profile_image"  javaType="String" />
+       <result property="name"          column="name"           javaType="String" />
+   </resultMap>
+   
+   <select id="getCollection_view" resultMap="collectionViewMap" parameterType="HashMap">
+    select M.movie_id, M.movie_title, M.poster_path, M.backdrop_path, MB.user_id, MB.nickname, MB.profile_image, MB.name 
+    from movie M join collection_movie CM
+    on M.movie_id = CM.movie_id
+    join member MB
+    on CM. user_id = MB.user_id
+    where MB.user_id = #{user_id}
+    order by collection_movie_date desc
+   </select>   
+   <!-- 유저의 컬랙션  끝 -->
+
+
+   <!-- 더보기 시작-->	
+   <select id="totalCount" parameterType="HashMap" resultType="HashMap" >
+    select count(*) as count
+    from collection_movie 
+    where user_id = #{user_id}
+   </select>   
+
+   <resultMap type="HashMap" id="cardSeeMoreMap">
+       <result property="user_id"         column="user_id"       javaType="String" />
+       <result property="movie_id"        column="movie_id"      javaType="String" />
+       <result property="movie_title"     column="movie_title"   javaType="String" />
+       <result property="poster_path"     column="poster_path"   javaType="String" />
+       <result property="rating_avg"   	  column="rating_avg"    javaType="String" />
+       <result property="rating_count"    column="rating_count"  javaType="String" /> 
+   </resultMap>   
+   <select id="cardSeeMore" resultMap="cardSeeMoreMap" parameterType="HashMap">
+    select user_id, movie_id, movie_title, poster_path, rating_avg, rating_count
+	from     
+	(        
+    select row_number() over(order by CM.collection_movie_date desc) AS RNO, CM.user_id, M.movie_id, M.movie_title, M.runtime, M.poster_path, M.rating_avg, M.rating_count
+	from collection_movie CM join movie M
+	on CM.movie_id = M.movie_id
+	where user_id = #{user_id}
+	 ) V
+	 where RNO between #{start} and #{end}
+   </select>   
+   <!-- 더보기 끝 -->	
+	
+	<!-- 댓글쓰기 insert -->
+	<insert id="addUserComment">
+	INSERT INTO user_collection_comment 
+	(user_collection_seq, user_id_comment, user_id_collection ,user_collection_content, user_collection_time, user_collection_status) 
+	VALUES 
+	(userCollectionSeq.nextval,#{user_id_comment},#{user_id_collection} ,#{user_collection_content}, sysdate, default)
+	</insert>
+	 
+	<!-- 페이징 처리하기 -->
+    <resultMap type="HashMap" id="uccListNoSearchWithPagingMap">
+       <result property="user_collection_seq"      column="user_collection_seq"      javaType="String" />
+       <result property="user_id_comment"          column="user_id_comment"          javaType="String" />
+       <result property="user_id_collection"  	   column="user_id_collection"  	 javaType="String" />
+       <result property="user_collection_content"  column="user_collection_content"  javaType="String" />
+       <result property="user_collection_time"     column="user_collection_time"     javaType="String" />
+       <result property="name"   		 		   column="name"            		 javaType="String" />
+       <result property="nickname"   	 		   column="nickname"        		 javaType="String" />
+       <result property="profile_image"   		   column="profile_image"     	 	 javaType="String" />
+    </resultMap>  
+	<select id="uccListNoSearchWithPaging" parameterType="HashMap" resultMap="uccListNoSearchWithPagingMap">
+    select user_collection_seq, user_id_comment, user_id_collection, user_collection_content, user_collection_time, name, nickname, profile_image
+	from 
+	(
+      select row_number() over(order by CC.user_collection_seq desc) AS rno, M.name, M.nickname, M.profile_image,
+	         CC.user_collection_seq, CC.user_id_comment, CC.user_id_collection, CC.user_collection_content,
+	         to_char(CC.user_collection_time, 'YYYY-MM-DD HH24:MI:SS') AS user_collection_time
+	  from user_collection_comment CC join member M
+      on CC.user_id_comment = M.user_id 
+      where user_id_collection = #{user_id_collection} 
+    ) V 
+	where rno between #{startRno} and #{endRno} and user_id_collection = #{user_id_collection}
+	order by user_collection_time 
+	</select>
+	
+	<!-- 원글 글번호에 해당하는 댓글의 totalPage 알아오기 -->
+	<select id="getUserCommentTotalPage" parameterType="HashMap" resultType="int">
+	select ceil(count(*)/#{sizePerPage}) 
+	from user_collection_comment
+	where user_collection_status = 1 and user_id_collection = #{user_id_collection} 
+	</select>
+	
+	<!-- 좋아요 -->
+	<select id="getLikeSelect" parameterType="HashMap" resultType="int">
+	select count(*)
+	from collection_like
+	where user_id_like = #{user_id_like} and user_id_collection = #{user_id_collection}
+	</select>
+	
+	<insert id="getLikeInsertCollection" parameterType="HashMap" >
+   	INSERT INTO collection_like(user_id_collection,user_id_like,collection_like_date) 
+	VALUES (#{user_id_collection},#{user_id_like},sysdate)
+	</insert>
+	
+	<insert id="getLikeDeleteCollection" parameterType="HashMap" >
+	delete from collection_like
+	where user_id_collection = #{user_id_collection} and user_id_like = #{user_id_like}
+	</insert>
+	
+	<!-- 컬렉션 영화 추가 -->
+	<select id="getCollectionSelect" parameterType="HashMap" resultType="int">
+	select count(*)
+	from collection_movie
+	where user_id = #{user_id} and movie_id = #{movie_id} 
+	</select>
+	 
+	<insert id="getCollectionAddDelete" parameterType="HashMap" >
+	delete from collection_movie
+	where user_id = #{user_id} and movie_id = #{movie_id}
+	</insert> 
+
+	<insert id="getCollectionAddInsert" parameterType="HashMap" >
+   	INSERT INTO collection_movie(movie_id, user_id) 
+	VALUES (#{movie_id},#{user_id})
+	</insert> 
+	
+	<!-- 컬렉션 값 유지 --> 
+	<select id="getMoviecollectionSelect" parameterType="HashMap" resultType="int">
+     select count(*) as count
+     from collection_movie
+     where user_id = #{user_id} and movie_id = #{movie_id}
+	</select>
+	
+	<!-- 좋아요 총수 -->
+	<select id="getLikeTotal" parameterType="HashMap" resultType="int">
+    select count(*)
+    from collection_like                   
+    where user_id_collection = #{user_id_collection}   
+	</select>
+	
+	<!-- 좋아요 값 유지 --> 
+	<select id="getLikeMaintain" parameterType="HashMap" resultType="int">
+    select count(*) 
+    from collection_like                   
+    where user_id_collection = #{user_id_collection} and user_id_like = #{user_id_like}  
+	</select>
+	
+	<!-- 차트 1 --> 
+	<resultMap type="HashMap" id="getWordcloud_Map"> 
+       <result property="user_collection_content"      column="user_collection_content"      javaType="String" />
+    </resultMap>  
+	<select id="getWordcloud" parameterType="HashMap" resultMap="getWordcloud_Map">
+      select CC.user_collection_content
+	  from user_collection_comment CC join member M 
+      on CC.user_id_collection = M.user_id 
+      where user_id_collection = #{user_id_collection} 
+	</select>	
+	
+	<!-- 차트 2 --> 
+	<resultMap type="HashMap" id="getPieBasicMap"> 
+       <result property="genre_name"      column="genre_name"      javaType="String" />
+       <result property="cnt"             column="cnt"             javaType="String" />
+       <result property="percentage"      column="percentage"      javaType="String" />
+    </resultMap>  
+	<select id="getPieBasic" parameterType="HashMap" resultMap="getPieBasicMap">
+    select genre_name, count(*) as cnt ,round(count(*)/(select count(*)
+                                                        from collection_movie CM join movie M
+                                                        on CM.movie_id = M.movie_id
+                                                        join movie_genre MG
+                                                        on M.movie_id = MG.movie_id
+                                                        where CM.user_id = #{user_id})*100, 2) as percentage  
+    from 
+    (
+    select G.genre_name
+    from collection_movie CM join movie M
+    on CM.movie_id = M.movie_id
+    join movie_genre MG
+    on M.movie_id = MG.movie_id
+    join genre G
+    on MG.genre_id = G.genre_id
+    where CM.user_id = #{user_id}
+    ) V
+    group by genre_name
+	</select>	
+	  
+	<!-- 댓글 삭제 -->  
+	<delete id="getDelUserComment" parameterType="HashMap"> 
+      delete from user_collection_comment 
+      where user_collection_seq = #{user_collection_seq}
+	</delete>	 
+	
+	
+	<!-- 댓글 수정 -->  
+	<update id="getUpdateComment" parameterType="HashMap"> 
+	UPDATE user_collection_comment set user_collection_content = #{user_collection_content}
+	WHERE user_collection_seq = #{user_collection_seq}
+	</update>	 	
+	
+</mapper>
+
